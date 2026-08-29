@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Magic Camera Pro - Synchronisé Bot Telegram</title>
+
+    <!-- MediaPipe pour détection des gestes -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
+
+        /* INTERFACE CAMÉRA iOS */
+        #camera-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; background: #000; transition: opacity 0.2s ease; }
+        #video-container { position: relative; width: 100%; flex: 1; overflow: hidden; background: #000; }
+        #video-feed { width: 100%; height: 100%; object-fit: cover; }
+
+        .ios-top-bar { position: absolute; top: 0; left: 0; width: 100%; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent); z-index: 12; }
+        .ios-icon-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.3); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 16px; border: none; cursor: pointer; }
+        .ios-icon-btn.active { background: #ffe600; color: #000; }
+
+        .ios-bottom-bar { position: relative; width: 100%; background: #000; padding: 10px 0 25px 0; display: flex; flex-direction: column; align-items: center; z-index: 12; }
+        .camera-modes { display: flex; gap: 20px; margin-bottom: 18px; font-size: 13px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: #8e8e93; }
+        .camera-modes span.active { color: #ffe600; }
+
+        .shutter-controls { width: 100%; padding: 0 35px; display: flex; justify-content: space-between; align-items: center; }
+        #gallery-miniature { width: 52px; height: 52px; border-radius: 8px; background-color: #1c1c1e; border: 1px solid rgba(255,255,255,0.2); background-size: cover; background-position: center; cursor: pointer; overflow: hidden; }
+        .btn-shutter-outer { width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; padding: 3px; cursor: pointer; display: flex; justify-content: center; align-items: center; }
+        .btn-shutter-inner { width: 100%; height: 100%; border-radius: 50%; background: #fff; transition: transform 0.1s; }
+        .btn-shutter-outer:active .btn-shutter-inner { transform: scale(0.9); }
+        #btn-switch-camera { width: 48px; height: 48px; background: rgba(255,255,255,0.15); border-radius: 50%; display: flex; justify-content: center; align-items: center; color: #fff; font-size: 20px; cursor: pointer; }
+
+        /* OVERLAY CONFIRMATION TRIPLE-TAP DISCRET (2 SECONDES) */
+        #secret-card-preview { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 25; pointer-events: none; background: rgba(0,0,0,0.7); border-radius: 12px; padding: 10px; border: 1px solid rgba(255,255,255,0.3); backdrop-filter: blur(5px); }
+        #secret-card-preview img { width: 120px; height: auto; border-radius: 6px; }
+
+        /* SÉLECTEUR DE CARTES */
+        #cards-screen { position: absolute; top: 0; left: 100%; width: 100%; height: 100%; z-index: 30; background: #111; transition: left 0.3s ease-out; display: flex; flex-direction: column; color: white; }
+        #cards-screen.active { left: 0; }
+        .cards-header { padding: 15px 20px; background: #1c1c1e; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        
+        .vibration-toggle-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: #2c2c2e; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #444; cursor: pointer; }
+        .vibration-toggle-btn.enabled { background: #34c759; color: #fff; border-color: #34c759; }
+
+        .cards-grid { flex: 1; overflow-y: auto; padding: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .card-item { background: #1c1c1e; border-radius: 8px; padding: 6px; text-align: center; border: 2px solid transparent; cursor: pointer; display: flex; flex-direction: column; align-items: center; transition: transform 0.1s; }
+        .card-item:active { transform: scale(0.96); }
+        .card-item.selected { border-color: #34c759; background: #1c3822; }
+        .card-item img { width: 100%; height: auto; aspect-ratio: 2/3; object-fit: contain; border-radius: 4px; background: #fff; }
+        .card-item span { font-size: 11px; margin-top: 5px; color: #ddd; font-weight: 600; }
+        #btn-confirm-card { padding: 8px 18px; background: #34c759; color: white; border-radius: 15px; font-weight: bold; display: none; cursor: pointer; }
+
+        /* GALERIE */
+        #gallery-screen { position: absolute; top: 0; right: 100%; width: 100%; height: 100%; z-index: 20; background: #000; transition: right 0.3s ease-out; display: flex; justify-content: center; align-items: center; touch-action: pan-x; }
+        #gallery-screen.active { right: 0; }
+        #gallery-canvas { width: 100%; height: 100%; display: block; }
+        #btn-back-camera { position: absolute; top: 20px; left: 20px; padding: 10px 15px; background: rgba(255,255,255,0.2); color: white; border-radius: 20px; font-size: 14px; z-index: 26; cursor: pointer; backdrop-filter: blur(5px); }
+        #ai-loader { display: none; position: absolute; top: 75px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 10px 20px; border-radius: 25px; z-index: 28; font-size: 13px; font-weight: bold; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(5px); }
+    </style>
+</head>
+<body>
+
+    <!-- CAMÉRA INTERFACE iOS -->
+    <div id="camera-screen">
+        <div id="video-container">
+            <video id="video-feed" autoplay playsinline muted></video>
+
+            <div class="ios-top-bar">
+                <button class="ios-icon-btn" id="btn-flash" onclick="toggleFlash()">⚡</button>
+                <button class="ios-icon-btn">⌃</button>
+                <button class="ios-icon-btn">◎</button>
+            </div>
+
+            <!-- APERÇU SECRET SUR TAPOTEMENT TRIPLE -->
+            <div id="secret-card-preview">
+                <img id="secret-card-img" src="" alt="Carte Sélectionnée">
+            </div>
+        </div>
+
+        <div class="ios-bottom-bar">
+            <div class="camera-modes">
+                <span>ACCÉLÉRÉ</span>
+                <span>RALENTI</span>
+                <span>VIDÉO</span>
+                <span class="active">PHOTO</span>
+                <span>PORTRAIT</span>
+                <span>PANO</span>
+            </div>
+            <div class="shutter-controls">
+                <div id="gallery-miniature" onclick="openGallery()"></div>
+                <div class="btn-shutter-outer" onclick="takePhoto()">
+                    <div class="btn-shutter-inner"></div>
+                </div>
+                <div id="btn-switch-camera" onclick="switchCamera()">↻</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SÉLECTION CARTE -->
+    <div id="cards-screen">
+        <div class="cards-header">
+            <span onclick="closeCardsScreen()" style="cursor:pointer">＜ Annuler</span>
+            <div id="btn-vibe-toggle" class="vibration-toggle-btn enabled" onclick="toggleVibrationSetting()">
+                <span>📳</span> <span id="vibe-status-text">Vibro ON</span>
+            </div>
+            <div id="btn-confirm-card" onclick="confirmCardSelection()">OK</div>
+        </div>
+        <div class="cards-grid" id="cards-grid"></div>
+    </div>
+
+    <!-- GALERIE -->
+    <div id="gallery-screen">
+        <div id="btn-back-camera" onclick="closeGallery()">＜ Caméra</div>
+        <div id="ai-loader">✨ Retouche IA en cours...</div>
+        <canvas id="gallery-canvas"></canvas>
+    </div>
+
+    <script>
+        const GEMINI_API_KEY = "AQ.Ab8RN6KyGlvO5Xijkewq9Okgfa7fw8_3lcYCD8oBvodg6h98TQ";
+
+        // URL DE VOTRE SERVEUR HÉBERGÉ (ex: Render / VPS)
+        // Remplacez cette adresse par le domaine exact de votre serveur WebSocket
+        const SERVER_WEBSOCKET_URL = "mon-bot-magic.onrender.com";
+
+        // CONFIGURATION DES LIENS D'IMAGES DES FIGURES (Remplacez par vos propres liens)
+        const CUSTOM_FIGURE_IMAGES = {
+            'J de Pique': '',
+            'Q de Pique': '',
+            'K de Pique': '',
+            'J de Cœur': '',
+            'Q de Cœur': '',
+            'K de Cœur': '',
+            'J de Trèfle': '',
+            'Q de Trèfle': '',
+            'K de Trèfle': '',
+            'J de Carreau': '',
+            'Q de Carreau': '',
+            'K de Carreau': ''
+        };
+
+        const SUITS = [
+            { id: 'spades', name: 'Pique', symbol: '♠', color: '#111111' },
+            { id: 'hearts', name: 'Cœur', symbol: '♥', color: '#d32f2f' },
+            { id: 'clubs', name: 'Trèfle', symbol: '♣', color: '#111111' },
+            { id: 'diamonds', name: 'Carreau', symbol: '♦', color: '#d32f2f' }
+        ];
+        const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
+        let ws = null;
+        let currentStream = null;
+        let useFrontCamera = false;
+        let flashEnabled = false;
+        let vibrationEnabled = true;
+
+        let photosList = [];
+        let currentPhotoIndex = -1;
+        let selectedCardFile = null;
+        let selectedCardLabel = null;
+        let selectedElement = null;
+
+        let detectedHandDetails = "Card naturally held in hand area";
+        let handsDetector = null;
+
+        let tapCount = 0;
+        let lastTapTime = 0;
+        let swipeLeftCount = 0;
+        let lastSwipeTime = 0;
+
+        const videoFeed = document.getElementById('video-feed');
+        const cameraScreen = document.getElementById('camera-screen');
+        const cardsScreen = document.getElementById('cards-screen');
+        const galleryScreen = document.getElementById('gallery-screen');
+        const galleryMiniature = document.getElementById('gallery-miniature');
+        const galleryCanvas = document.getElementById('gallery-canvas');
+        const ctx = galleryCanvas.getContext('2d');
+        const secretPreview = document.getElementById('secret-card-preview');
+        const secretImg = document.getElementById('secret-card-img');
+
+        // CONNEXION WEBSOCKET AUTOMATIQUE (Support HTTPS / WSS)
+        function initWebSocket() {
+            const isSecure = window.location.protocol === 'https:';
+            const wsProtocol = isSecure ? 'wss://' : 'ws://';
+            
+            // Bascule automatique : local si test hors ligne, hébergé sinon
+            const host = SERVER_WEBSOCKET_URL || (window.location.hostname + ":8765");
+            ws = new WebSocket(wsProtocol + host);
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.action === "select_card") {
+                    setCardFromExternal(data.cardLabel);
+                } else if (data.action === "toggle_vibration") {
+                    vibrationEnabled = data.status;
+                    updateVibrationUI();
+                    if (vibrationEnabled) triggerDiscreetVibration();
+                }
+            };
+
+            ws.onclose = () => setTimeout(initWebSocket, 2000);
+        }
+
+        // VIBRATION EXACTE DE 50ms
+        function triggerDiscreetVibration() {
+            if (vibrationEnabled && "vibrate" in navigator) {
+                navigator.vibrate(50);
+            }
+        }
+
+        function toggleVibrationSetting() {
+            vibrationEnabled = !vibrationEnabled;
+            updateVibrationUI();
+            if (vibrationEnabled) triggerDiscreetVibration();
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "vibration_status", status: vibrationEnabled }));
+            }
+        }
+
+        function updateVibrationUI() {
+            const vibeBtn = document.getElementById('btn-vibe-toggle');
+            const vibeText = document.getElementById('vibe-status-text');
+            if (vibrationEnabled) {
+                vibeBtn.classList.add('enabled');
+                vibeText.textContent = "Vibro ON";
+            } else {
+                vibeBtn.classList.remove('enabled');
+                vibeText.textContent = "Vibro OFF";
+            }
+        }
+
+        // GENERATION SVG EXACTE POUR LES 52 CARTES STANDARD
+        function generateAuthenticCardSVG(val, suit) {
+            const label = `${val} de ${suit.name}`;
+            
+            if (['J', 'Q', 'K'].includes(val) && CUSTOM_FIGURE_IMAGES[label]) {
+                return CUSTOM_FIGURE_IMAGES[label];
+            }
+
+            const sym = suit.symbol;
+            const pipPositions = {
+                '2': [[100, 70], [100, 210, true]],
+                '3': [[100, 70], [100, 140], [100, 210, true]],
+                '4': [[65, 70], [135, 70], [65, 210, true], [135, 210, true]],
+                '5': [[65, 70], [135, 70], [100, 140], [65, 210, true], [135, 210, true]],
+                '6': [[65, 70], [135, 70], [65, 140], [135, 140], [65, 210, true], [135, 210, true]],
+                '7': [[65, 70], [135, 70], [100, 105], [65, 140], [135, 140], [65, 210, true], [135, 210, true]],
+                '8': [[65, 70], [135, 70], [100, 105], [65, 140], [135, 140], [100, 175, true], [65, 210, true], [135, 210, true]],
+                '9': [[65, 65], [135, 65], [65, 115], [135, 115], [100, 140], [65, 165, true], [135, 165, true], [65, 215, true], [135, 215, true]],
+                '10': [[65, 65], [135, 65], [100, 92.5], [65, 115], [135, 115], [65, 165, true], [135, 165, true], [100, 187.5, true], [65, 215, true], [135, 215, true]]
+            };
+
+            let pipsContent = '';
+
+            if (val === 'A') {
+                const fontSize = suit.id === 'spades' ? "80" : "65";
+                const posY = suit.id === 'spades' ? "160" : "155";
+                pipsContent = `<text x="100" y="${posY}" font-size="${fontSize}" text-anchor="middle" fill="${suit.color}">${sym}</text>`;
+            } else if (['J', 'Q', 'K'].includes(val)) {
+                pipsContent = `
+                    <rect x="40" y="55" width="120" height="170" rx="4" fill="none" stroke="${suit.color}" stroke-width="2" stroke-dasharray="4"/>
+                    <text x="100" y="150" font-family="Arial" font-size="52" font-weight="bold" text-anchor="middle" fill="${suit.color}">${val}</text>
+                    <text x="100" y="185" font-size="30" text-anchor="middle" fill="${suit.color}">${sym}</text>
+                `;
+            } else if (pipPositions[val]) {
+                pipsContent = pipPositions[val].map(p => {
+                    const transform = p[2] ? `transform="rotate(180 ${p[0]} ${p[1]})"` : '';
+                    return `<text x="${p[0]}" y="${p[1]}" font-size="32" text-anchor="middle" dominant-baseline="central" fill="${suit.color}" ${transform}>${sym}</text>`;
+                }).join('');
+            }
+
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280" viewBox="0 0 200 280">
+                <rect width="200" height="280" rx="12" fill="#ffffff" stroke="#d0d0d0" stroke-width="2"/>
+                <text x="12" y="28" font-family="Arial, sans-serif" font-size="20" font-weight="bold" text-anchor="middle" fill="${suit.color}">${val}</text>
+                <text x="12" y="46" font-size="16" text-anchor="middle" fill="${suit.color}">${sym}</text>
+                ${pipsContent}
+                <g transform="rotate(180 188 252)">
+                    <text x="188" y="252" font-family="Arial, sans-serif" font-size="20" font-weight="bold" text-anchor="middle" fill="${suit.color}">${val}</text>
+                    <text x="188" y="270" font-size="16" text-anchor="middle" fill="${suit.color}">${sym}</text>
+                </g>
+            </svg>`;
+
+            return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        }
+
+        function generateCardsGrid() {
+            const grid = document.getElementById('cards-grid');
+            grid.innerHTML = '';
+            SUITS.forEach(suit => {
+                VALUES.forEach(val => {
+                    const label = `${val} de ${suit.name}`;
+                    const imgSrc = generateAuthenticCardSVG(val, suit);
+
+                    const item = document.createElement('div');
+                    item.className = 'card-item';
+                    item.setAttribute('data-label', label);
+                    item.innerHTML = `<img src="${imgSrc}"><span>${label}</span>`;
+                    item.onclick = () => {
+                        if (selectedElement) selectedElement.classList.remove('selected');
+                        item.classList.add('selected');
+                        selectedElement = item;
+                        selectedCardFile = imgSrc;
+                        selectedCardLabel = label;
+                        document.getElementById('btn-confirm-card').style.display = 'block';
+                    };
+                    grid.appendChild(item);
+                });
+            });
+        }
+
+        function setCardFromExternal(cardLabel) {
+            selectedCardLabel = cardLabel;
+            const parts = cardLabel.split(' de ');
+            const val = parts[0];
+            const suitName = parts[1];
+            const suit = SUITS.find(s => s.name === suitName) || SUITS[0];
+
+            selectedCardFile = generateAuthenticCardSVG(val, suit);
+            highlightCardInGrid(cardLabel);
+            triggerDiscreetVibration();
+        }
+
+        function highlightCardInGrid(label) {
+            const items = document.querySelectorAll('.card-item');
+            items.forEach(item => {
+                if (item.getAttribute('data-label') === label) {
+                    if (selectedElement) selectedElement.classList.remove('selected');
+                    item.classList.add('selected');
+                    selectedElement = item;
+                }
+            });
+        }
+
+        function initMediaPipe() {
+            handsDetector = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+            handsDetector.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5 });
+            handsDetector.onResults((results) => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    detectedHandDetails = `Card placed naturally around finger joint X:${Math.round(lm[8].x*100)}%, Y:${Math.round(lm[8].y*100)}%`;
+                }
+            });
+
+            async function processFrame() {
+                if (videoFeed.readyState >= 2) await handsDetector.send({ image: videoFeed });
+                requestAnimationFrame(processFrame);
+            }
+            processFrame();
+        }
+
+        async function startCamera() {
+            if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+            const constraints = { video: { facingMode: useFrontCamera ? "user" : "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } };
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoFeed.srcObject = currentStream;
+            } catch (err) {}
+        }
+
+        function switchCamera() { useFrontCamera = !useFrontCamera; startCamera(); }
+        function toggleFlash() { flashEnabled = !flashEnabled; document.getElementById('btn-flash').classList.toggle('active', flashEnabled); }
+
+        function takePhoto() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = videoFeed.videoWidth || 1280;
+            tempCanvas.height = videoFeed.videoHeight || 720;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(videoFeed, 0, 0, tempCanvas.width, tempCanvas.height);
+
+            const rawData = tempCanvas.toDataURL('image/jpeg', 0.95);
+            const photoObj = { rawData: rawData, processedData: rawData, isModified: false };
+
+            photosList.push(photoObj);
+            currentPhotoIndex = photosList.length - 1;
+            updateMiniature();
+
+            if (selectedCardLabel) {
+                processPhotoWithGeminiAI(photosList.length - 1, selectedCardLabel, detectedHandDetails);
+            }
+        }
+
+        async function processPhotoWithGeminiAI(targetIndex, cardLabel, handDetails) {
+            const targetPhoto = photosList[targetIndex];
+            document.getElementById('ai-loader').style.display = 'block';
+
+            try {
+                const base64Data = targetPhoto.rawData.split(',')[1];
+                const promptText = `Edit this image realistically: Seamlessly add an authentic ${cardLabel} playing card into the scene. ${handDetails}. Natural shadows and occlusion.`;
+
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: promptText }, { inline_data: { mime_type: "image/jpeg", data: base64Data } }] }]
+                    })
+                });
+
+                const result = await response.json();
+                if (result.candidates && result.candidates[0].content.parts[0].inline_data) {
+                    const newBase64 = `data:image/jpeg;base64,${result.candidates[0].content.parts[0].inline_data.data}`;
+                    targetPhoto.processedData = newBase64;
+                    targetPhoto.isModified = true;
+
+                    updateMiniature();
+                    triggerDiscreetVibration();
+
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: "photo_ready", imageBase64: newBase64 }));
+                    }
+
+                    if (galleryScreen.classList.contains('active')) renderPhotoInGallery(newBase64);
+                }
+            } catch (e) {} finally {
+                document.getElementById('ai-loader').style.display = 'none';
+            }
+        }
+
+        function confirmCardSelection() {
+            closeCardsScreen();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "card_selected_locally", cardLabel: selectedCardLabel }));
+            }
+        }
+
+        function updateMiniature() {
+            if (photosList.length > 0) {
+                galleryMiniature.style.backgroundImage = `url(${photosList[photosList.length - 1].processedData})`;
+            }
+        }
+
+        function openGallery() {
+            if (photosList.length === 0) return;
+            galleryScreen.classList.add('active');
+            renderPhotoInGallery(photosList[currentPhotoIndex].processedData);
+        }
+        function closeGallery() { galleryScreen.classList.remove('active'); }
+
+        function renderPhotoInGallery(dataUrl) {
+            const img = new Image();
+            img.src = dataUrl;
+            img.onload = () => {
+                galleryCanvas.width = galleryScreen.clientWidth;
+                galleryCanvas.height = galleryScreen.clientHeight;
+                ctx.clearRect(0, 0, galleryCanvas.width, galleryCanvas.height);
+                ctx.drawImage(img, 0, 0, galleryCanvas.width, galleryCanvas.height);
+            };
+        }
+
+        // TRIPLE-TAP SECRET (Affiche la carte choisie pendant 2 secondes)
+        cameraScreen.addEventListener('click', () => {
+            const now = Date.now();
+            if (now - lastTapTime < 400) {
+                tapCount++;
+                if (tapCount === 3) {
+                    tapCount = 0;
+                    if (selectedCardFile) {
+                        secretImg.src = selectedCardFile;
+                        secretPreview.style.display = 'block';
+                        setTimeout(() => { secretPreview.style.display = 'none'; }, 2000);
+                    }
+                }
+            } else {
+                tapCount = 1;
+            }
+            lastTapTime = now;
+        });
+
+        // DOUBLE SWIPE GAUCHE POUR OUVRIR LE SÉLECTEUR MANUEL
+        let touchStartX = 0;
+        cameraScreen.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
+        cameraScreen.addEventListener('touchend', e => {
+            const diffX = touchStartX - e.changedTouches[0].screenX;
+            const now = Date.now();
+            if (diffX > 80) {
+                if (now - lastSwipeTime < 1200) swipeLeftCount++; else swipeLeftCount = 1;
+                lastSwipeTime = now;
+                if (swipeLeftCount === 2) { swipeLeftCount = 0; cardsScreen.classList.add('active'); }
+            } else if (diffX < -80) openGallery();
+        });
+
+        function closeCardsScreen() { cardsScreen.classList.remove('active'); }
+
+        window.addEventListener('load', () => {
+            startCamera();
+            initMediaPipe();
+            generateCardsGrid();
+            initWebSocket();
+        });
+    </script>
+</body>
+</html>
