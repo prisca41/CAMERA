@@ -1,0 +1,8 @@
+# Clé API OpenAI pour la génération/modification d'images
+OPENAI_API_KEY=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
+
+# Token du Bot Telegram (Télécommande)
+TELEGRAM_BOT_TOKEN=8533927172:AAH4kdIu5Sq8wpySaSVo674URpm_xKVN7fQ
+
+# Port du serveur Node.js / Bot
+PORT=3000
